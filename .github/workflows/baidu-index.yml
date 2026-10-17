@@ -1,0 +1,56 @@
+# 百度指数每日自动更新
+# 注意：YAML 文件里的注释只能用 # 开头
+
+name: 百度指数每日更新
+
+on:
+  schedule:
+    # cron 用的是 UTC 时间：UTC 2 点到 10 点每小时一次 = 北京时间 10 点到 18 点
+    - cron: '0 2-10 * * *'
+  workflow_dispatch:          # 允许你在 Actions 页面手动点按钮运行
+    inputs:
+      probe:
+        description: '探测模式（不需要百度账号，只测 IP 会不会被拦）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write             # 允许把抓到的文件提交回仓库
+
+concurrency:
+  group: baidu-index
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 取出仓库代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装无头浏览器
+        run: npm i playwright@1.48.2 && npx playwright install --with-deps chromium
+
+      - name: 抓取百度指数
+        env:
+          BDUSS: ${{ secrets.BDUSS }}
+          BAIDU_WORD: 嫁金钗
+          BAIDU_DAYS: '90'
+          BAIDU_PROBE: ${{ inputs.probe && '1' || '0' }}
+        run: node fetch_baidu_index.mjs
+
+      - name: 提交更新
+        run: |
+          [ -f baidu-index.json ] || { echo "没有新文件，跳过"; exit 0; }
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baidu-index.json
+          git diff --cached --quiet && { echo "数据没变化，跳过"; exit 0; }
+          git commit -m "百度指数更新 $(date -u +%F)"
+          git push
